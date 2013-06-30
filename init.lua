@@ -152,16 +152,20 @@ end
 
 local readcurrent = function ( )
   local filename = getpath "data" .. "/current"
-  local chunk = loaddata (filename)
-  chunk = load (chunk)
-  if not (chunk and type(chunk) == "function") then
+  if isfile (filename) then
+    local chunk = loaddata (filename)
+    chunk = load (chunk)
+    if not (chunk and type(chunk) == "function") then
+      return false
+    end
+    chunk = chunk ()
+    yt_unblocker.scripthash      = chunk[1]
+    yt_unblocker.scriptversion   = chunk[2]
+    yt_unblocker.scripttimestamp = chunk[4]
+    return chunk[3]
+  else
     return false
   end
-  chunk = chunk ()
-  yt_unblocker.scripthash      = chunk[1]
-  yt_unblocker.scriptversion   = chunk[2]
-  yt_unblocker.scripttimestamp = chunk[4]
-  return chunk[3]
 end
 
 local loadjs = function ( )
@@ -204,34 +208,6 @@ end
 local reloadjs = function ()
   scriptcache = nil
 end
-
-local isyt do
-  local domain    = P"youtube.com"
-  local nodomain  = 1 - domain
-  isyt            = nodomain^0 * domain
-end
-
-local active = true
-
-local initializer = function (view, w)
-  view:add_signal("load-status", function (v, status)
-    if active == false then --- disable and return
-      trackstatus[v] = false
-      return
-    end
-    if status == "provisional" then
-      trackstatus[v] = false
-    elseif status == "first-visual" or status == "finished" then
-      if lpegmatch (isyt, v.uri) ~= nil and trackstatus[v] ~= true then
-        trackstatus[v] = injectjs (v)
-      else
-        trackstatus[v] = false
-      end
-    end
-  end)
-end
-
-webview.init_funcs.yt_unblocker = initializer
 
 -----------------------------------------------------------------------
 -- integration with updater
@@ -308,6 +284,7 @@ end
 -- user interface
 -----------------------------------------------------------------------
 
+local active = true
 local prefix = "(yt-unblock) "
 
 local infostring = function (...)
@@ -360,6 +337,46 @@ local ytcommands = {
 }
 
 add_cmds (ytcommands)
+
+-----------------------------------------------------------------------
+-- initialization
+-----------------------------------------------------------------------
+
+local isyt do
+  local domain    = P"youtube.com"
+  local nodomain  = 1 - domain
+  isyt            = nodomain^0 * domain
+end
+
+local initializer = function (view, w)
+  local current = readcurrent ()
+  if not current then --- download
+    local success, complaint = update ()
+    if success == true then
+      w:notify (infostring ("script successfully installed"))
+    else
+      w:notify (infostring ("download failed, reason: %q", complaint))
+    end
+    collectgarbage "collect"
+  end
+  view:add_signal("load-status", function (v, status)
+    if active == false then --- disable and return
+      trackstatus[v] = false
+      return
+    end
+    if status == "provisional" then
+      trackstatus[v] = false
+    elseif status == "first-visual" or status == "finished" then
+      if lpegmatch (isyt, v.uri) ~= nil and trackstatus[v] ~= true then
+        trackstatus[v] = injectjs (v)
+      else
+        trackstatus[v] = false
+      end
+    end
+  end)
+end
+
+webview.init_funcs.yt_unblocker = initializer
 
 --return yt_unblocker
 
