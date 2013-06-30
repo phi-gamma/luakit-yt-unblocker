@@ -9,6 +9,23 @@ and provides user commands for basic control.
 =======================================================================
                                  how?
 =======================================================================
+dependencies
+************
+
+In addition to the Luakit_ browser, the unblocker plugin requires the
+following libraries:
+
+(#) ``lua-md5``,
+(#) ``luafilesystem``,
+(#) ``luasocket``, and
+(#) the xar_ archiver (not kidding: the unblocker script comes in an
+    ``xar`` archive).
+
+At the moment the code runs only with Lua 5.2, so make sure your Luakit
+is compiled against that version.
+If you haven’t updated yet you can try the `Lua 5.2 branch`_ of my
+fork.
+
 install
 *******
 
@@ -69,4 +86,6 @@ the `Youtube Unblocker`_.
 .. _canonical repo:     https://github.com/phi-gamma/luakit-yt-unblocker
 .. _Philipp Gesang:     https://www.phi-gamma.net
 .. _Lunaweb:            http://www.lunaweb.de
-
+.. _Luakit:             http://luakit.org
+.. _xar:                http://code.google.com/p/xar/
+.. _Lua 5.2 branch:     https://github.com/phi-gamma/luakit#branch=lua5.2
