@@ -5,12 +5,10 @@
 --  DESCRIPTION:  luakit plugin
 -- REQUIREMENTS:  luakit, luafilesystem
 --       AUTHOR:  Philipp Gesang (Phg), <phg42.2a@gmail.com>
---      VERSION:  1.0
+--      VERSION:  001
 --      CREATED:  2013-06-30 16:41:52+0200
 -----------------------------------------------------------------------
 --
-
-local yt_unblocker = { } -- namespace
 
 -----------------------------------------------------------------------
 -- configuration
@@ -29,7 +27,10 @@ local env = {
 -----------------------------------------------------------------------
 local lfs   = require "lfs"
 local lpeg  = require "lpeg"
+local lousy = require "lousy"
 
+local add_cmds      = add_cmds
+local info          = info
 local load          = load
 local unpack        = unpack or table.unpack
 local ioopen        = io.open
@@ -37,6 +38,7 @@ local iowrite       = io.write
 local lfsattributes = lfs.attributes
 local setmetatable  = setmetatable
 local stringformat  = string.format
+local osdate        = os.date
 
 local C, Cf, Cg, Ct, P, R, S
     = lpeg.C, lpeg.Cf, lpeg.Cg, lpeg.Ct, lpeg.P, lpeg.R, lpeg.S
@@ -53,6 +55,15 @@ local defaults = {
   scriptname  = "youtube.js",
   --sourceurl   = "http://unblocker.yt",
 }
+
+-----------------------------------------------------------------------
+-- main table
+-----------------------------------------------------------------------
+
+local yt_unblocker    = { } -- namespace
+yt_unblocker.version  = "001"
+yt_unblocker.defaults = env
+yt_unblocker.defaults = defaults
 
 -----------------------------------------------------------------------
 -- helpers
@@ -98,6 +109,8 @@ local readcurrent = function ( )
     return false
   end
   chunk = chunk ()
+  yt_unblocker.scriptversion   = chunk[2]
+  yt_unblocker.scripttimestamp = chunk[4]
   return chunk[3]
 end
 
@@ -144,9 +157,14 @@ local isyt do
   isyt            = nodomain^0 * domain
 end
 
+local active = true
+
 local initializer = function (view, w)
   view:add_signal("load-status", function (v, status)
-    --print("load-status>", v, status, v.uri)
+    if active == false then --- disable and return
+      trackstatus[v] = false
+      return
+    end
     if status == "provisional" then
       trackstatus[v] = false
     elseif status == "first-visual" or status == "finished" then
@@ -161,5 +179,44 @@ end
 
 webview.init_funcs.yt_unblocker = initializer
 
+-----------------------------------------------------------------------
+-- user interface
+-----------------------------------------------------------------------
+
+local prefix = "(yt-unblock) "
+
+local infostring = function (...)
+  return prefix .. stringformat (...)
+end
+
+local cmd = lousy.bind.cmd
+
+local ytcommands = {
+  cmd ({ "yt-unblocker-enable", "yt+" }, function (w)
+    w:notify (infostring ("start unblocking"))
+    active = true
+  end),
+  cmd ({ "yt-unblocker-disable", "yt-" }, function (w)
+    w:notify (infostring ("stop unblocking"))
+    active = false
+  end),
+  cmd ({ "yt-unblocker-status", "ytstat" }, function (w)
+    if active == true then
+      w:notify (infostring ("unblocking is active"))
+    else
+      w:notify (infostring ("unblocking is not active"))
+    end
+  end),
+  cmd ({ "yt-unblocker-version", "ytv" }, function (w)
+    w:notify
+      (infostring ("version %s, script %q, date %s",
+                   yt_unblocker.version, yt_unblocker.scriptversion,
+                   osdate ("%F %T", yt_unblocker.scripttimestamp)))
+  end),
+}
+
+add_cmds (ytcommands)
+
 --return yt_unblocker
+
 -- vim:ft=lua:sw=2:ts=2:expandtab:tw=71

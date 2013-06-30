@@ -44,6 +44,7 @@ local lfsdir        = lfs.dir
 local lfsmkdir      = lfs.mkdir
 local osexecute     = os.execute
 local osgetenv      = os.getenv
+local ostime        = os.time
 local stringfind    = string.find
 local stringformat  = string.format
 local stringgmatch  = string.gmatch
@@ -291,10 +292,9 @@ end
 
 local write_current = function (path, chksum, name, scriptfile)
   local location = path .. "/current"
-  local content  = stringformat ("return {\n  %q,\n  %q,\n  %q\n}\n",
-                                 chksum,
-                                 name,
-                                 scriptfile)
+  local content  = stringformat
+    ("return {\n  %q,\n  %q,\n  %q,\n  %q,\n}\n",
+     chksum, name, scriptfile, ostime ())
   savedata (location, content)
 end
 
