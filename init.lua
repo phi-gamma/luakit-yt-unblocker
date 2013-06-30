@@ -1,12 +1,12 @@
 #!/usr/bin/env texlua
 -----------------------------------------------------------------------
 --         FILE:  init.lua
---        USAGE:  require "plugins.yt-unblock"
+--        USAGE:  require "plugins.yt-unblocker"
 --  DESCRIPTION:  luakit plugin
 -- REQUIREMENTS:  luakit, luafilesystem
 --       AUTHOR:  Philipp Gesang (Phg), <phg42.2a@gmail.com>
 --      VERSION:  001
---      CREATED:  2013-06-30 16:41:52+0200
+--     MODIFIED:  2013-06-30 23:03:06+0200
 -----------------------------------------------------------------------
 --
 
@@ -16,10 +16,10 @@
 
 --- overrides for paths and uris
 local env = {
-  --prefix      = "/home/phg/.local/share",
+  --prefix      = os.getenv "HOME" .. "/.local/share",
   --datapath    = "yt-unblocker",
   --scriptname  = "youtube.js",
-  --configpath  = "/home/phg/.config/luakit",
+  --configpath  = os.getenv "HOME" .. "/.config/luakit",
   --updater     = "yt-unblock-update.lua",
 }
 
@@ -35,8 +35,11 @@ local info          = info
 local ioopen        = io.open
 local iowrite       = io.write
 local lfsattributes = lfs.attributes
+local lfscurrentdir = lfs.currentdir
+local lfsdir        = lfs.dir
 local load          = load
 local osdate        = os.date
+local osremove      = os.remove
 local setmetatable  = setmetatable
 local stringfind    = string.find
 local stringformat  = string.format
@@ -52,7 +55,7 @@ local lpegmatch = lpeg.match
 -----------------------------------------------------------------------
 
 local defaults = {
-  --cachedir    = "cache",
+  cachedir    = "cache",
   datapath    = "yt-unblocker",
   prefix      = xdg.data_dir,
   scriptname  = "youtube.js",
@@ -76,12 +79,16 @@ yt_unblocker.defaults = defaults
 
 local getpath = function (which)
   local datapath = env.datapath or defaults.datapath
+  local prefix   = env.prefix   or defaults.prefix
+
   if which == "data" then
-    return (env.prefix or defaults.prefix)
-           .. "/" .. datapath
+    return prefix .. "/" .. datapath
   elseif which == "config" then
     return (env.configpath or defaults.configpath)
            .. "/plugins/" .. datapath
+--  elseif which == "cache" then
+--    return prefix .. "/" .. datapath
+--           .. "/" .. (env.cachedir or defaults.cachedir)
   end
 end
 
@@ -109,6 +116,29 @@ local isfile = function (name)
   return false
 end
 
+--- the rm -r function delivers stats about files and dirs removed
+
+local do_rmrec -- non tail-recursive
+do_rmrec = function (start, nd, nf)
+  if isdir (start) then
+    for ent in lfsdir (start) do
+      if ent ~= ".." and ent ~= "." then
+        nd, nf = do_rmrec (start .. "/" .. ent, nd, nf)
+      end
+    end
+    osremove (start)
+    nd = nd + 1
+  elseif isfile (start) then
+    osremove (start)
+    nf = nf + 1
+  end
+  return nd, nf
+end
+
+local rmrec = function (start)
+  return do_rmrec (start, 0, 0)
+end
+
 local loaddata = function (location)
   local chan = ioopen(location, "r")
   if not chan then
@@ -128,6 +158,7 @@ local readcurrent = function ( )
     return false
   end
   chunk = chunk ()
+  yt_unblocker.scripthash      = chunk[1]
   yt_unblocker.scriptversion   = chunk[2]
   yt_unblocker.scripttimestamp = chunk[4]
   return chunk[3]
@@ -238,6 +269,41 @@ local update = function ( )
   return true
 end
 
+local cleanupfiles = function ( )
+  local kdirs, kfiles = 0, 0
+  local rootdir       = getpath "data"
+  local cachedir      = (env.cachedir or defaults.cachedir)
+  local currentarch   = yt_unblocker.scriptversion
+  local currenthash   = yt_unblocker.scripthash
+  if not currenthash then
+    readcurrent ()
+    currenthash = yt_unblocker.scripthash
+  end
+  for ent in lfsdir (rootdir) do
+    local full = rootdir .. "/" .. ent
+    if isdir (full) then
+      if ent == cachedir then
+        for archive in lfsdir (full) do
+          if archive ~= currentarch
+          and stringsub(archive, 1, 1) ~= "."
+          then
+            kfiles = kfiles + 1
+            orremove(full .. "/" .. archive)
+--          else
+--            --- current, .., .
+          end
+        end
+      elseif ent ~= currenthash and stringsub (ent, 1, 1) ~= "." then
+        local d, f = rmrec (full)
+        kdirs, kfiles = kdirs + d, kfiles + f
+--      else
+--        --- current, .., .
+      end
+    end
+  end
+  return kdirs, kfiles
+end
+
 -----------------------------------------------------------------------
 -- user interface
 -----------------------------------------------------------------------
@@ -272,7 +338,7 @@ local ytcommands = {
   end),
   cmd ({ "yt-unblocker-version", "ytv" }, function (w)
     w:notify
-      (infostring ("version %s, script %q, date %s",
+      (infostring ("version %s, script %q, downloaded %s",
                    yt_unblocker.version, yt_unblocker.scriptversion,
                    osdate ("%F %T", yt_unblocker.scripttimestamp)))
   end),
@@ -284,6 +350,12 @@ local ytcommands = {
       w:notify (infostring ("update failed, reason: %q", complaint))
     end
     collectgarbage "collect"
+  end),
+  cmd ({ "yt-unblocker-cleanup", "ytc" }, function (w)
+    local dirs, files = cleanupfiles ()
+    w:notify
+      (infostring ("cache empty, removed %d directories and %d files",
+                   dirs, files))
   end),
 }
 
