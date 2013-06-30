@@ -24,8 +24,6 @@ local env = {
   --scriptname  = "youtube.js",
 }
 
-print "update running"
-
 -----------------------------------------------------------------------
 -- imports
 -----------------------------------------------------------------------
@@ -71,6 +69,8 @@ local defaults = {
 -- helpers
 -----------------------------------------------------------------------
 
+local live = luakit and true or false
+
 local complain = function (...)
   iowrite "!> "
   iowrite(stringformat(...))
@@ -78,6 +78,10 @@ local complain = function (...)
 end
 
 local abort = function (...)
+  if live then -- no hard exits
+    info (...)
+    return false
+  end
   if select ("#", ...) > 0 then
     complain (...)
   end
@@ -133,7 +137,7 @@ local getdatapath = function ( )
   if not isdir (datadir) then
     mkdirs (datadir)
     if not isdir (datadir) then
-      abort("cannot create directory %s, aborting.", datadir)
+      return abort("cannot create directory %s, aborting.", datadir)
     end
   end
   return datadir
@@ -148,28 +152,38 @@ local getcachepath = function (root)
 end
 
 local retrievepage = function (url)
-  local struff = assert(http.request (url),
-                        "could not access %s" .. url)
-  return struff
+  local stuff = assert(http.request (url),
+                       "could not access %s" .. url)
+  return stuff
 end
 
 local savedata = function (location, data)
   local chan = ioopen(location, "w")
   if not chan then
-    abort ("cannot open %s for writing", location)
+    return abort ("cannot open %s for writing", location)
   end
   chan:write(data)
   chan:close()
+  return true
 end
 
 local loaddata = function (location)
   local chan = ioopen(location, "r")
   if not chan then
-    abort ("cannot open %s for reading", location)
+    return abort ("cannot open %s for reading", location)
   end
   local data = chan:read "*all"
   chan:close ()
   return data
+end
+
+local runcmd = function (cmd)
+  if live then
+    local retval, _stdout, _stderr = luakit.spawn_sync (cmd)
+    return retval == 0
+  end
+  local s, t, r = osexecute (cmd)
+  return s == true or t == "exit" or r == 0
 end
 
 local xar_extract
@@ -178,7 +192,7 @@ do
   local xar_cmd = chan:read "*line"
   chan:close()
   if not xar_cmd then
-    abort "cannot find xar utility"
+    return abort "cannot find xar utility"
   end
 
   --- that thing’s a bit daft; cannot be piped to, won’t
@@ -193,10 +207,11 @@ do
   xar_extract = function (filename, target)
     local cwd = lfscurrentdir ()
     lfschdir (target)
-    local s, t, r = osexecute (stringformat(xar_cmd, filename))
-    if s ~= true or t ~= "exit" or r ~= 0 then
+    --local s, t, r = osexecute (stringformat(xar_cmd, filename))
+    local success = runcmd (stringformat(xar_cmd, filename))
+    if not success then
       lfschdir (cwd)
-      abort ("failed to extract %s", filename)
+      return abort ("failed to extract %s", filename)
     end
 
     local extpath
@@ -213,7 +228,7 @@ do
     end
     lfschdir (cwd)
     if extpath == nil then
-      abort ("cannot locate script file (%s) in archive", scriptname)
+      return abort ("cannot locate script file (%s) in archive", scriptname)
     end
     return extpath
   end
@@ -282,7 +297,7 @@ do
         end
       end
     end
-    abort "could not extract URI’s, unblocker plugin might be outdated"
+    return abort "could not extract URI’s, unblocker plugin might be outdated"
   end
 end
 
@@ -295,11 +310,14 @@ local write_current = function (path, chksum, name, scriptfile)
   local content  = stringformat
     ("return {\n  %q,\n  %q,\n  %q,\n  %q,\n}\n",
      chksum, name, scriptfile, ostime ())
-  savedata (location, content)
+  return savedata (location, content)
 end
 
 local retrievearch = function (datapath, uri)
   local datapath  = getdatapath ()
+  if not datapath then
+    return false
+  end
   local cachepath = getcachepath (datapath)
   local filename  = basename (uri)
   local filepath  = cachepath .. "/" .. filename
@@ -310,9 +328,12 @@ local retrievearch = function (datapath, uri)
   if not isfile (filepath) then
     local bin, errmsg = http.request (uri)
     if not bin then
-      abort ("download from %s failed, reason: %s", uri, errmsg)
+      return abort ("download from %s failed, reason: %s", uri, errmsg)
     end
-    savedata (filepath, bin)
+    local success = savedata (filepath, bin)
+    if not success then
+      return false
+    end
     data = bin
   else
     data = loaddata (filepath)
@@ -325,7 +346,11 @@ local retrievearch = function (datapath, uri)
   end
 
   local scriptfile = xar_extract (filepath, targetdir)
+  if not scriptfile then
+    return false
+  end
   write_current (datapath, chksum, filename, scriptfile)
+  return true
 end
 
 -----------------------------------------------------------------------
@@ -336,9 +361,14 @@ local update = function ( )
   local sourceurl = env.sourceurl or defaults.sourceurl
   local rawdata   = retrievepage (sourceurl)
   local uri       = sourceurl .. "/" .. extracturi (rawdata)
-  local archfile  = retrievearch (datapath, uri)
-  return 0
+  if uri then
+    local success = retrievearch (datapath, uri)
+    if success then
+      return 0
+    end
+  end
+  return 1
 end
 
-return update ()
+return live and update or update ()
 

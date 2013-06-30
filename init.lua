@@ -18,8 +18,9 @@
 local env = {
   --prefix      = "/home/phg/.local/share",
   --datapath    = "yt-unblocker",
-  --sourceurl   = "http://unblocker.yt",
   --scriptname  = "youtube.js",
+  --configpath  = "/home/phg/.config/luakit",
+  --updater     = "yt-unblock-update.lua",
 }
 
 -----------------------------------------------------------------------
@@ -31,14 +32,16 @@ local lousy = require "lousy"
 
 local add_cmds      = add_cmds
 local info          = info
-local load          = load
-local unpack        = unpack or table.unpack
 local ioopen        = io.open
 local iowrite       = io.write
 local lfsattributes = lfs.attributes
-local setmetatable  = setmetatable
-local stringformat  = string.format
+local load          = load
 local osdate        = os.date
+local setmetatable  = setmetatable
+local stringfind    = string.find
+local stringformat  = string.format
+local stringsub     = string.sub
+local unpack        = unpack or table.unpack
 
 local C, Cf, Cg, Ct, P, R, S
     = lpeg.C, lpeg.Cf, lpeg.Cg, lpeg.Ct, lpeg.P, lpeg.R, lpeg.S
@@ -54,6 +57,8 @@ local defaults = {
   prefix      = xdg.data_dir,
   scriptname  = "youtube.js",
   --sourceurl   = "http://unblocker.yt",
+  configpath  = luakit.config_dir,
+  updater     = "yt-unblock-update.lua",
 }
 
 -----------------------------------------------------------------------
@@ -68,6 +73,22 @@ yt_unblocker.defaults = defaults
 -----------------------------------------------------------------------
 -- helpers
 -----------------------------------------------------------------------
+
+local getpath = function (which)
+  local datapath = env.datapath or defaults.datapath
+  if which == "data" then
+    return (env.prefix or defaults.prefix)
+           .. "/" .. datapath
+  elseif which == "config" then
+    return (env.configpath or defaults.configpath)
+           .. "/plugins/" .. datapath
+  end
+end
+
+local stripfirst = function (str)
+  local eol = stringfind (str, "\n")
+  return stringsub (str, eol + 1)
+end
 
 local warn = function (...)
   iowrite "unblk>"
@@ -100,9 +121,7 @@ local loaddata = function (location)
 end
 
 local readcurrent = function ( )
-  local filename = (env.prefix or defaults.prefix)
-                .. "/" .. (env.datapath or defaults.datapath)
-                .. "/current"
+  local filename = getpath "data" .. "/current"
   local chunk = loaddata (filename)
   chunk = load (chunk)
   if not (chunk and type(chunk) == "function") then
@@ -151,6 +170,10 @@ local injectjs = function (view)
   return true
 end
 
+local reloadjs = function ()
+  scriptcache = nil
+end
+
 local isyt do
   local domain    = P"youtube.com"
   local nodomain  = 1 - domain
@@ -180,6 +203,42 @@ end
 webview.init_funcs.yt_unblocker = initializer
 
 -----------------------------------------------------------------------
+-- integration with updater
+-----------------------------------------------------------------------
+
+--- the updater script can be run independently so there’s quite a
+--- bit of duplication wrt functionality; we add the capability to
+--- initiate updates here so the user can choose between manual and
+--- crontab-based updating.
+
+local update = function ( )
+  local filename = getpath "config"
+                .. "/" .. (env.updater or defaults.updater)
+  if not isfile (filename) then
+    return false, "no update script at " .. filename
+  end
+
+  local chunk = loaddata (filename)
+  chunk = stripfirst (chunk) -- get rid of shebang
+  chunk = load (chunk)
+  if not chunk or type (chunk) ~= "function" then
+    return false, "update script not valid"
+  end
+
+  local updater  = chunk ()
+  local tupdater = type (updater)
+  if tupdater ~= "function" then
+    return false, stringformat("expected function, got %s", tupdater)
+  end
+
+  local success = updater () == 0
+  if not success then
+    return false, "update failed"
+  end
+  return true
+end
+
+-----------------------------------------------------------------------
 -- user interface
 -----------------------------------------------------------------------
 
@@ -200,6 +259,10 @@ local ytcommands = {
     w:notify (infostring ("stop unblocking"))
     active = false
   end),
+  cmd ({ "yt-unblocker-reload", "ytr" }, function (w)
+    reloadjs ()
+    w:notify (infostring ("reloading script (refresh page now)"))
+  end),
   cmd ({ "yt-unblocker-status", "ytstat" }, function (w)
     if active == true then
       w:notify (infostring ("unblocking is active"))
@@ -212,6 +275,15 @@ local ytcommands = {
       (infostring ("version %s, script %q, date %s",
                    yt_unblocker.version, yt_unblocker.scriptversion,
                    osdate ("%F %T", yt_unblocker.scripttimestamp)))
+  end),
+  cmd ({ "yt-unblocker-update", "ytu" }, function (w)
+    local success, complaint = update ()
+    if success == true then
+      w:notify (infostring ("update successful"))
+    else
+      w:notify (infostring ("update failed, reason: %q", complaint))
+    end
+    collectgarbage "collect"
   end),
 }
 
