@@ -16,7 +16,7 @@
 -- config
 -----------------------------------------------------------------------
 
---- overrides for data path
+--- overrides for paths and uris
 local env = {
   --prefix      = "/home/phg/.local/share",
   --datapath    = "yt-unblocker",
@@ -24,28 +24,30 @@ local env = {
   --scriptname  = "youtube.js",
 }
 
+print "update running"
+
 -----------------------------------------------------------------------
 -- imports
 -----------------------------------------------------------------------
 
-local lpeg = require "lpeg"
-local lfs  = require "lfs"
-local md5  = require "md5"
 local http = require "socket.http"
+local lfs  = require "lfs"
+local lpeg = require "lpeg"
+local md5  = require "md5"
 
-local lfsmkdir      = lfs.mkdir
+local ioopen        = io.open
+local iowrite       = io.write
 local lfsattributes = lfs.attributes
 local lfschdir      = lfs.chdir
-local lfsdir        = lfs.dir
 local lfscurrentdir = lfs.currentdir
+local lfsdir        = lfs.dir
+local lfsmkdir      = lfs.mkdir
+local osexecute     = os.execute
+local osgetenv      = os.getenv
+local stringfind    = string.find
+local stringformat  = string.format
 local stringgmatch  = string.gmatch
 local stringmatch   = string.match
-local stringfind    = string.find
-local osgetenv      = os.getenv
-local osexecute     = os.execute
-local iowrite       = io.write
-local ioopen        = io.open
-local stringformat  = string.format
 
 local C, Cf, Cg, Ct, P, R, S
     = lpeg.C, lpeg.Cf, lpeg.Cg, lpeg.Ct, lpeg.P, lpeg.R, lpeg.S
@@ -58,7 +60,7 @@ local lpegmatch = lpeg.match
 --- default according to http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html#variables
 local defaults = {
   cachedir    = "cache",
-  data        = "yt-unblocker",
+  datapath    = "yt-unblocker",
   prefix      = ".local/share",
   scriptname  = "youtube.js",
   sourceurl   = "http://unblocker.yt",
@@ -126,7 +128,7 @@ local getdatapath = function ( )
   if not datadir then
     datadir = osgetenv "HOME" .. "/" .. defaults.prefix
   end
-  datadir = datadir .. "/" .. (env.datapath or defaults.data)
+  datadir = datadir .. "/" .. (env.datapath or defaults.datapath)
   if not isdir (datadir) then
     mkdirs (datadir)
     if not isdir (datadir) then
@@ -335,7 +337,7 @@ local update = function ( )
   local rawdata   = retrievepage (sourceurl)
   local uri       = sourceurl .. "/" .. extracturi (rawdata)
   local archfile  = retrievearch (datapath, uri)
-  os.exit (0)
+  return 0
 end
 
 return update ()
